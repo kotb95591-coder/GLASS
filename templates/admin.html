@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="glass-panel admin-panel">
+    <h2>👑 Админ-панель</h2>
+
+    <!-- Поиск пользователей -->
+    <div class="search-box">
+        <input type="text" placeholder="🔍 Поиск пользователей..." class="glass-input" id="admin-user-search">
+        <div id="admin-search-results" class="search-results"></div>
+    </div>
+
+    <!-- Выдать всем пользователям -->
+    <div class="admin-section glass-panel">
+        <h3>Массовая выдача стеклов</h3>
+        <div class="mass-action">
+            <input type="number" class="glass-input" id="mass-glass-amount" placeholder="Кол-во стеклов" min="1">
+            <button class="glass-button" onclick="giveGlassToAll()">Выдать всем пользователям</button>
+        </div>
+    </div>
+
+    <!-- Список пользователей -->
+    <div class="admin-section">
+        <h3>Пользователи</h3>
+        <div class="users-list">
+            {% for user in users %}
+            {% if user.id != 1 %}
+            <div class="user-item glass-panel">
+                <div class="user-info">
+                    <span class="username">{{ user.username }}</span>
+                    <span class="balance">🪙 {{ user.glass_balance }} стеклов</span>
+                    {% if user.is_banned %}
+                    <span class="banned-badge">🚫 Забанен</span>
+                    {% endif %}
+                </div>
+                <div class="admin-actions">
+                    <input type="number" class="glass-input small" placeholder="Кол-во" id="amount-{{ user.id }}">
+                    <button class="glass-button small" onclick="giveGlass('{{ user.username }}', {{ user.id }})">
+                        Выдать
+                    </button>
+                    {% if not user.is_banned %}
+                    <button class="glass-button small danger" onclick="banUser('{{ user.username }}')">
+                        Забанить
+                    </button>
+                    {% else %}
+                    <button class="glass-button small success" onclick="unbanUser('{{ user.username }}')">
+                        Разбанить
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="admin-actions-main">
+        <a href="{{ url_for('main') }}" class="glass-button">Назад в чат</a>
+    </div>
+</div>
+
+<script>
+document.getElementById('admin-user-search').addEventListener('input', function(e) {
+    const query = e.target.value.toLowerCase().trim();
+    const userItems = document.querySelectorAll('.user-item');
+
+    if (!query) {
+        userItems.forEach(item => item.style.display = 'flex');
+        return;
+    }
+
+    userItems.forEach(item => {
+        const username = item.querySelector('.username').textContent.toLowerCase();
+        if (username.includes(query)) {
+            item.style.display = 'flex';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+});
+
+function giveGlassToAll() {
+    const amount = document.getElementById('mass-glass-amount').value;
+    if (!amount || amount <= 0) {
+        alert('Введите корректное количество стеклов');
+        return;
+    }
+
+    if (confirm(`Выдать ${amount} стеклов ВСЕМ пользователям?`)) {
+        fetch('/api/admin/give_glass_all', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ amount: parseInt(amount) })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert(`${data.message} (${data.total_affected} пользователей)`);
+                location.reload();
+            } else {
+                alert('Ошибка: ' + data.message);
+            }
+        });
+    }
+}
+
+function giveGlass(username, userId) {
+    const amount = document.getElementById('amount-' + userId).value;
+    if (!amount || amount <= 0) {
+        alert('Введите корректное количество');
+        return;
+    }
+
+    fetch('/api/admin/give_glass', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            username: username,
+            amount: parseInt(amount)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Стеклы выданы! Новый баланс: ' + data.new_balance);
+            location.reload();
+        } else {
+            alert('Ошибка: ' + data.message);
+        }
+    });
+}
+
+function banUser(username) {
+    if (confirm(`Забанить пользователя ${username}?`)) {
+        fetch('/api/admin/ban_user', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ username: username })
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            location.reload();
+        });
+    }
+}
+
+function unbanUser(username) {
+    if (confirm(`Разбанить пользователя ${username}?`)) {
+        fetch('/api/admin/unban_user', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ username: username })
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            location.reload();
+        });
+    }
+}
+</script>
+
+<style>
+.admin-panel {
+    max-width: 800px;
+    margin: 20px auto;
+    padding: 30px;
+}
+
+.mass-action {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.mass-action .glass-input {
+    width: 150px;
+}
+
+.user-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    margin-bottom: 15px;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.banned-badge {
+    background: rgba(244, 67, 54, 0.2);
+    color: #f44336;
+    padding: 4px 8px;
+    border-radius: 8px;
+    font-size: 12px;
+    border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+.admin-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.admin-actions .glass-input.small {
+    width: 80px;
+    padding: 8px;
+}
+
+.admin-actions .glass-button.small {
+    padding: 8px 12px;
+    font-size: 12px;
+}
+
+.admin-section {
+    margin-bottom: 30px;
+}
+
+.admin-section h3 {
+    margin-bottom: 15px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+}
+</style>
+{% endblock %}
