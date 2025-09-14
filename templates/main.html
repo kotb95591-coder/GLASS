@@ -1,0 +1,638 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="app-container">
+    <!-- Сайдбар -->
+    <div class="sidebar glass-panel">
+        <div class="sidebar-header">
+            <div class="user-info">
+                <img src="{{ user.avatar_url }}" alt="Avatar" class="avatar">
+                <span class="username">{{ user.username }}</span>
+                {% if user.username == '@' %}
+                <span class="admin-badge">👑</span>
+                {% endif %}
+            </div>
+            <div class="balance">
+                🪙 {{ user.glass_balance }}
+            </div>
+        </div>
+
+        <!-- Поиск пользователей -->
+        <div class="search-container">
+            <div class="search-box">
+                <input type="text" placeholder="🔍 Найти пользователя..." class="glass-input" id="user-search">
+            </div>
+            <div id="search-results" class="search-results"></div>
+        </div>
+
+        <!-- Личный чат с ботом -->
+        <div class="chats-list" id="chats-list">
+            <div class="chat-item active" data-user-id="1" data-username="GSLASE_Bot">
+                <div class="chat-avatar">🤖</div>
+                <div class="chat-info">
+                    <div class="chat-name">GSLASE Бот</div>
+                    <div class="chat-last-message">Ваши уведомления</div>
+                </div>
+            </div>
+
+            <!-- Чаты будут загружаться динамически -->
+        </div>
+
+        {% if user.username == '@' %}
+        <div class="admin-link">
+            <a href="{{ url_for('admin_panel') }}" class="glass-button">👑 Админ-панель</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Область чата -->
+    <div class="chat-area">
+        <div class="chat-header glass-panel">
+            <h3 id="current-chat-name">GSLASE Бот</h3>
+            <div class="chat-actions">
+                {% if user.username == '@' and currentReceiverId != 1 %}
+                <button class="glass-button small" onclick="showAdminPanel('{{ currentUsername }}')">👑</button>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="messages-container" id="messages-container">
+            <!-- Сообщения будут загружаться динамически -->
+        </div>
+
+        <div class="message-input-container">
+            <input type="text" placeholder="Введите сообщение..." class="glass-input" id="message-input">
+            <button class="glass-button send-button" onclick="sendMessage()">➤</button>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно админ-функций -->
+<div id="admin-modal" class="modal">
+    <div class="modal-content glass-panel">
+        <span class="close" onclick="closeAdminModal()">&times;</span>
+        <h3>👑 Управление пользователем</h3>
+        <div id="user-info"></div>
+        <div class="admin-actions-modal">
+            <input type="number" class="glass-input" id="glass-amount" placeholder="Кол-во стеклов" min="1">
+            <button class="glass-button" onclick="giveGlassToUser()">Выдать стеклы</button>
+            <div class="action-buttons">
+                <button class="glass-button danger" onclick="banUser()">Забанить</button>
+                <button class="glass-button success" onclick="unbanUser()">Разбанить</button>
+            </div>
+            <input type="password" class="glass-input" id="new-password" placeholder="Новый пароль">
+            <button class="glass-button warning" onclick="changePassword()">Сменить пароль</button>
+        </div>
+    </div>
+</div>
+
+<!-- Навигация снизу -->
+<div class="bottom-nav">
+    <button class="nav-item active" onclick="showChatList()">💬</button>
+    <button class="nav-item" onclick="showChannels()">📢</button>
+    <button class="nav-item" onclick="showSettings()">⚙️</button>
+    <button class="nav-item" onclick="logout()">🚪</button>
+</div>
+
+<script>
+let currentReceiverId = 1;
+let currentUsername = 'GSLASE_Bot';
+let activeChats = new Set([1]);
+let searchTimeout = null;
+
+// Загрузка чатов при запуске
+function loadUserChats() {
+    fetch('/api/user_chats')
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const chatsList = document.getElementById('chats-list');
+
+            // Добавляем чаты кроме бота (который уже есть)
+            data.chats.forEach(chat => {
+                if (chat.other_user_id !== 1 && !activeChats.has(chat.other_user_id)) {
+                    activeChats.add(chat.other_user_id);
+                    addChatToSidebar(chat.other_user_id, chat.other_username);
+                }
+            });
+        }
+    })
+    .catch(error => {
+        console.error('Error loading chats:', error);
+    });
+}
+
+// Поиск пользователей
+document.getElementById('user-search').addEventListener('input', function(e) {
+    const query = e.target.value.trim();
+    const resultsContainer = document.getElementById('search-results');
+
+    if (searchTimeout) {
+        clearTimeout(searchTimeout);
+    }
+
+    if (query.length === 0) {
+        resultsContainer.innerHTML = '';
+        resultsContainer.style.display = 'none';
+        return;
+    }
+
+    searchTimeout = setTimeout(() => {
+        searchUsers(query);
+    }, 300);
+});
+
+function searchUsers(query) {
+    const resultsContainer = document.getElementById('search-results');
+
+    fetch(`/api/search_users?q=${encodeURIComponent(query)}`)
+    .then(response => response.json())
+    .then(data => {
+        resultsContainer.innerHTML = '';
+
+        if (data.status === 'error') {
+            resultsContainer.innerHTML = '<div class="no-results">Ошибка поиска</div>';
+            return;
+        }
+
+        if (!data.users || data.users.length === 0) {
+            resultsContainer.innerHTML = '<div class="no-results">Пользователи не найдены</div>';
+            resultsContainer.style.display = 'block';
+            return;
+        }
+
+        data.users.forEach(user => {
+            const userElement = document.createElement('div');
+            userElement.className = 'search-result-item';
+            userElement.innerHTML = `
+                <div class="user-avatar">${user.username[0].toUpperCase()}</div>
+                <div class="user-name">${user.username}</div>
+                <button class="glass-button small" onclick="startChat(${user.id}, '${user.username}')">
+                    💬
+                </button>
+            `;
+            resultsContainer.appendChild(userElement);
+        });
+
+        resultsContainer.style.display = 'block';
+    })
+    .catch(error => {
+        console.error('Search error:', error);
+        resultsContainer.innerHTML = '<div class="no-results">Ошибка поиска</div>';
+        resultsContainer.style.display = 'block';
+    });
+}
+
+// Закрытие результатов поиска при клике вне области
+document.addEventListener('click', function(e) {
+    const searchContainer = document.querySelector('.search-container');
+    const searchInput = document.getElementById('user-search');
+    const resultsContainer = document.getElementById('search-results');
+
+    if (!searchContainer.contains(e.target) && e.target !== searchInput) {
+        resultsContainer.style.display = 'none';
+    }
+});
+
+function startChat(userId, username) {
+    // Сначала создаем/проверяем чат в базе данных
+    fetch('/api/create_chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ receiver_id: userId })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Затем добавляем чат в интерфейс
+            if (!activeChats.has(userId)) {
+                activeChats.add(userId);
+                addChatToSidebar(userId, username);
+            }
+
+            switchToChat(userId, username);
+            document.getElementById('user-search').value = '';
+            document.getElementById('search-results').style.display = 'none';
+        } else {
+            alert('Ошибка создания чата: ' + data.message);
+        }
+    });
+}
+
+function addChatToSidebar(userId, username) {
+    const chatsList = document.getElementById('chats-list');
+    const chatItem = document.createElement('div');
+    chatItem.className = 'chat-item';
+    chatItem.dataset.userId = userId;
+    chatItem.dataset.username = username;
+    chatItem.innerHTML = `
+        <div class="chat-avatar">${username[0].toUpperCase()}</div>
+        <div class="chat-info">
+            <div class="chat-name">${username}</div>
+            <div class="chat-last-message">Личный чат</div>
+        </div>
+    `;
+
+    chatItem.addEventListener('click', function() {
+        switchToChat(userId, username);
+    });
+
+    {% if user.username == '@' %}
+    chatItem.addEventListener('dblclick', function() {
+        showAdminPanel(username);
+    });
+    {% endif %}
+
+    // Добавляем после чата с ботом, но перед другими чатами
+    const botChat = document.querySelector('.chat-item[data-user-id="1"]');
+    if (botChat && botChat.nextSibling) {
+        chatsList.insertBefore(chatItem, botChat.nextSibling);
+    } else {
+        chatsList.appendChild(chatItem);
+    }
+}
+
+function switchToChat(userId, username) {
+    document.querySelectorAll('.chat-item').forEach(chat => {
+        chat.classList.remove('active');
+    });
+
+    const currentChat = document.querySelector(`.chat-item[data-user-id="${userId}"]`);
+    if (currentChat) {
+        currentChat.classList.add('active');
+    }
+
+    currentReceiverId = userId;
+    currentUsername = username;
+    document.getElementById('current-chat-name').textContent = username;
+
+    loadMessages(userId);
+}
+
+// Инициализация чата с ботом
+document.querySelector('.chat-item[data-user-id="1"]').addEventListener('click', function() {
+    switchToChat(1, 'GSLASE Бот');
+});
+
+{% if user.username == '@' %}
+document.querySelector('.chat-item[data-user-id="1"]').addEventListener('dblclick', function() {
+    // Бота нельзя редактировать
+});
+{% endif %}
+
+function showAdminPanel(username) {
+    fetch(`/api/admin/user_info/${username}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const userInfo = data.user;
+            document.getElementById('user-info').innerHTML = `
+                <div class="user-details">
+                    <p><strong>Логин:</strong> ${userInfo.username}</p>
+                    <p><strong>Email:</strong> ${userInfo.email}</p>
+                    <p><strong>Баланс:</strong> ${userInfo.glass_balance} стеклов</p>
+                    <p><strong>Статус:</strong> ${userInfo.is_banned ? 'Забанен' : 'Активен'}</p>
+                </div>
+            `;
+            document.getElementById('admin-modal').style.display = 'block';
+        }
+    });
+}
+
+function closeAdminModal() {
+    document.getElementById('admin-modal').style.display = 'none';
+}
+
+function respondToInvitation(invitationId, accept) {
+    fetch('/api/invite/respond', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            invitation_id: invitationId,
+            accept: accept
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            loadMessages(currentReceiverId);
+        }
+    });
+}
+
+// ФУНКЦИИ НАВИГАЦИИ - ИСПРАВЛЕННЫЕ
+function showChatList() {
+    // Уже видим чаты
+    console.log('Показать чаты');
+}
+
+function showChannels() {
+    alert('Раздел каналов в разработке');
+}
+
+function showSettings() {
+    window.location.href = "{{ url_for('settings') }}";
+}
+
+function logout() {
+    if (confirm('Вы уверены, что хотите выйти из аккаунта?')) {
+        window.location.href = "{{ url_for('logout') }}";
+    }
+}
+
+// Функции чата
+function sendMessage() {
+    const input = document.getElementById('message-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    fetch('/api/send_message', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            content: message,
+            receiver_id: currentReceiverId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            input.value = '';
+            loadMessages(currentReceiverId);
+        } else {
+            alert('Ошибка отправки: ' + data.message);
+        }
+    })
+    .catch(error => {
+        alert('Ошибка сети: ' + error);
+    });
+}
+
+function loadMessages(receiverId) {
+    fetch(`/api/messages/${receiverId}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            const container = document.getElementById('messages-container');
+            container.innerHTML = '';
+
+            data.messages.forEach(msg => {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${msg.is_own ? 'sent' : 'received'}`;
+
+                if (msg.content_type === 'invitation') {
+                    messageDiv.innerHTML = `
+                        <div class="message-content glass-panel invitation-message">
+                            <p>${msg.content}</p>
+                            <div class="invitation-actions">
+                                <button class="glass-button small success"
+                                        onclick="respondToInvitation(${msg.invitation_id}, true)">
+                                    ✅ Принять
+                                </button>
+                                <button class="glass-button small danger"
+                                        onclick="respondToInvitation(${msg.invitation_id}, false)">
+                                    ❌ Отклонить
+                                </button>
+                            </div>
+                        </div>
+                        <div class="message-time">${new Date(msg.timestamp).toLocaleTimeString()}</div>
+                    `;
+                } else {
+                    messageDiv.innerHTML = `
+                        <div class="message-content glass-panel">
+                            <strong>${msg.sender}:</strong> ${msg.content}
+                        </div>
+                        <div class="message-time">${new Date(msg.timestamp).toLocaleTimeString()}</div>
+                    `;
+                }
+
+                container.appendChild(messageDiv);
+            });
+
+            scrollToBottom();
+        }
+    })
+    .catch(error => {
+        console.error('Error loading messages:', error);
+    });
+}
+
+function scrollToBottom() {
+    const container = document.getElementById('messages-container');
+    container.scrollTop = container.scrollHeight;
+}
+
+function giveGlassToUser() {
+    const amount = document.getElementById('glass-amount').value;
+    if (!amount || amount <= 0) {
+        alert('Введите корректное количество стеклов');
+        return;
+    }
+
+    fetch('/api/admin/give_glass', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            username: currentUsername,
+            amount: parseInt(amount)
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert(`Выдано ${amount} стеклов пользователю ${currentUsername}`);
+            closeAdminModal();
+        } else {
+            alert('Ошибка: ' + data.message);
+        }
+    });
+}
+
+function banUser() {
+    if (confirm(`Забанить пользователя ${currentUsername}?`)) {
+        fetch('/api/admin/ban_user', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: currentUsername})
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            closeAdminModal();
+        });
+    }
+}
+
+function unbanUser() {
+    if (confirm(`Разбанить пользователя ${currentUsername}?`)) {
+        fetch('/api/admin/unban_user', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: currentUsername})
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            closeAdminModal();
+        });
+    }
+}
+
+function changePassword() {
+    const newPassword = document.getElementById('new-password').value;
+    if (!newPassword) {
+        alert('Введите новый пароль');
+        return;
+    }
+
+    if (confirm(`Сменить пароль для ${currentUsername}?`)) {
+        fetch('/api/admin/change_password', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                username: currentUsername,
+                new_password: newPassword
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            closeAdminModal();
+        });
+    }
+}
+
+// Закрытие модального окна при клике вне его
+window.onclick = function(event) {
+    const modal = document.getElementById('admin-modal');
+    if (event.target == modal) {
+        closeAdminModal();
+    }
+}
+
+// Инициализация
+document.addEventListener('DOMContentLoaded', function() {
+    // Загружаем сохраненные чаты пользователя
+    loadUserChats();
+
+    // Загружаем сообщения для текущего чата (бота)
+    loadMessages(currentReceiverId);
+
+    document.getElementById('message-input').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') sendMessage();
+    });
+
+    // Обновление сообщений каждые 3 секунды
+    setInterval(() => loadMessages(currentReceiverId), 3000);
+});
+</script>
+
+<style>
+.search-container {
+    position: relative;
+    margin-bottom: 15px;
+}
+
+.search-box {
+    position: relative;
+}
+
+.search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--primary-bg);
+    backdrop-filter: blur(var(--blur-amount));
+    border: 1px solid var(--border-color);
+    border-radius: 15px;
+    margin-top: 5px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+}
+
+.search-result-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+.search-result-item:hover {
+    background: var(--secondary-bg);
+}
+
+.search-result-item:last-child {
+    border-bottom: none;
+}
+
+.user-avatar {
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-color), #9575cd);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    color: white;
+    font-weight: bold;
+}
+
+.user-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+.no-results {
+    padding: 15px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.bottom-nav {
+    position: fixed;
+    bottom: 25px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    background: var(--primary-bg);
+    backdrop-filter: blur(var(--blur-amount));
+    border-radius: 50px;
+    padding: 15px 25px;
+    border: 1px solid var(--border-color);
+    z-index: 1000;
+}
+
+.nav-item {
+    width: 55px;
+    height: 55px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3em;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: var(--secondary-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.nav-item.active,
+.nav-item:hover {
+    background: var(--accent-color);
+    color: white;
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Остальные стили остаются без изменений */
+</style>
+{% endblock %}

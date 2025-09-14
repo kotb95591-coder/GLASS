@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="glass-panel settings-panel">
+    <h2>Настройки</h2>
+
+    <div class="settings-section">
+        <h3>Внешний вид</h3>
+        <select class="glass-input">
+            <option>Темная тема</option>
+            <option>Светлая тема</option>
+        </select>
+    </div>
+
+    <div class="settings-section">
+        <h3>Профиль</h3>
+        {% if user %}
+            <div class="user-info">
+                <img src="{{ user.avatar_url }}" alt="Avatar" class="avatar-small">
+                <span>{{ user.username }}</span>
+            </div>
+        {% endif %}
+        <button class="glass-button">Сменить аватар</button>
+        <button class="glass-button">Изменить данные</button>
+    </div>
+
+    <div class="settings-section">
+        <h3>Стекла</h3>
+        <p>Баланс: <strong>{{ user.glass_balance if user else 0 }}</strong> стеклов</p>
+        <button class="glass-button">Купить стеклы</button>
+    </div>
+
+    <div class="settings-actions">
+        <a href="{{ url_for('main') }}" class="glass-button secondary">Назад</a>
+        <a href="{{ url_for('logout') }}" class="glass-button logout-button">Выйти</a>
+    </div>
+</div>
+
+<style>
+.settings-panel {
+    max-width: 500px;
+    margin: 50px auto;
+}
+
+.settings-section {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 15px;
+    border: 1px solid var(--border-color);
+}
+
+.settings-section h3 {
+    margin-bottom: 15px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+}
+
+.avatar-small {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    margin-right: 10px;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.settings-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    margin-top: 30px;
+}
+
+.settings-actions .glass-button {
+    flex: 1;
+    text-align: center;
+}
+
+.logout-button {
+    background: rgba(255, 0, 0, 0.2);
+    border-color: rgba(255, 0, 0, 0.5);
+}
+
+.logout-button:hover {
+    background: rgba(255, 0, 0, 0.3);
+}
+</style>
+{% endblock %}
